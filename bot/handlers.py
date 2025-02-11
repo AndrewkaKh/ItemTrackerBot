@@ -2,10 +2,10 @@ from cgitb import reset
 
 from telegram.ext import CommandHandler, CallbackQueryHandler
 
-from bot.commands.admin_commands import add_user, pay_user, reset_db, confirm_reset_db, cancel_reset_db
-from bot.commands.report_commands import export_reports, filter_data
-from bot.commands.user_commands import add_item, movement, add_product, del_article
-from bot.commands.report_commands import start
+from commands.admin_commands import add_user, pay_user, reset_db, confirm_reset_db, cancel_reset_db
+from commands.report_commands import export_reports, filter_data
+from commands.user_commands import add_item, movement, add_product, del_article
+from commands.report_commands import start
 
 def register_handlers(application):
     """

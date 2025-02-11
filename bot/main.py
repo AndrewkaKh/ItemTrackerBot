@@ -1,6 +1,9 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 import logging
 from telegram.ext import Application, CommandHandler
-from bot.handlers import register_handlers
+from handlers import register_handlers
 from config import BOT_TOKEN
 
 

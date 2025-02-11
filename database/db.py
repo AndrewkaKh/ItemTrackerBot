@@ -1,7 +1,7 @@
 import psycopg2
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from config import DB_CONFIG
+from bot.config import DB_CONFIG
 
 from database.models import Base
 
@@ -36,3 +36,11 @@ def reset_database():
     Base.metadata.drop_all(bind=engine)  # Удаление всех таблиц
     Base.metadata.create_all(bind=engine)  # Создание всех таблиц заново
     print("База данных успешно сброшена и создана заново.")
+
+def init_db():
+    """
+    Создаёт таблицы в базе данных, если они ещё не существуют.
+    """
+    print("🔧 Создаём таблицы в базе данных...")
+    Base.metadata.create_all(bind=engine)
+    print("✅ Таблицы успешно созданы!")

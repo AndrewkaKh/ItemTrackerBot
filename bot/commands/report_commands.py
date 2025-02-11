@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from telegram.ext import CommandHandler, CallbackContext
 from telegram import Update
 import os
@@ -7,7 +10,7 @@ from bot.access_control.auth_decorator import require_auth
 from bot.config import ADMIN_ID, REPORT_FOLDER
 from database.db import SessionLocal
 from reports.excel_generator import generate_excel
-from reports.pdf_generator import generate_pdf
+#from reports.pdf_generator import generate_pdf
 
 @require_auth
 async def start(update: Update, context: CallbackContext):
@@ -105,12 +108,10 @@ async def export_reports(update: Update, context: CallbackContext):
         # Отправка отчетов пользователю
         with open(report_file, "rb") as f:
             await update.message.reply_document(f)
-
+        db.close()
         await update.message.reply_text("Отчеты успешно сгенерированы и отправлены!")
     except Exception as e:
         await update.message.reply_text(f"Ошибка при экспорте отчетов: {str(e)}")
-    finally:
-        db.close()
 
 @require_auth
 async def filter_data(update: Update, context: CallbackContext):
@@ -159,10 +160,8 @@ async def filter_data(update: Update, context: CallbackContext):
         for file in excel_files + pdf_files:
             with open(file, "rb") as f:
                 await update.message.reply_document(f)
-
+        db.close()
         await update.message.reply_text(f"Данные за период {start_date} - {end_date} успешно отфильтрованы и отправлены!")
     except Exception as e:
         await update.message.reply_text(f"Ошибка при фильтрации данных: {str(e)}")
-    finally:
-        db.close()
 

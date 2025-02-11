@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from telegram.ext import CommandHandler, CallbackContext
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
@@ -147,6 +150,7 @@ async def pay_user(update: Update, context: CallbackContext):
         # Зачисляем деньги на счет пользователя
         user.expenses += amount
         db.commit()
+        db.close()
 
         await update.message.reply_text(
             f"На счет пользователя {username} зачислено {amount} единиц. "
@@ -154,5 +158,3 @@ async def pay_user(update: Update, context: CallbackContext):
         )
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {str(e)}")
-    finally:
-        db.close()

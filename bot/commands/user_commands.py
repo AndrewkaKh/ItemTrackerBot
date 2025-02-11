@@ -243,12 +243,11 @@ async def add_product(update: Update, context: CallbackContext):
             db.add(product_component)
             print(f"Добавляется компонент: {component['article']} (количество: {component['quantity']})")
         db.commit()
+        db.close()
 
         await update.message.reply_text(f"Товар '{product_name}' с артикулом '{product_article}' успешно добавлен!")
     except Exception as e:
         await update.message.reply_text(f"Ошибка при добавлении товара: {str(e)}")
-    finally:
-        db.close()
 
 @require_auth
 async def del_article(update: Update, context: CallbackContext):
