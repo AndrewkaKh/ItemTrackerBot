@@ -1,16 +1,27 @@
 import sys
 import os
+from datetime import datetime
+
+from database.models import Movement
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from telegram.ext import CommandHandler, CallbackContext
 from telegram import Update
 import os
 from sqlalchemy.sql import text
-
+import pandas as pd
 from bot.access_control.auth_decorator import require_auth
 from bot.config import ADMIN_ID, REPORT_FOLDER
 from database.db import SessionLocal
-from reports.excel_generator import generate_excel
+from reports.excel_generator import generate_excel, generate_excel_for_movement
+
+
 #from reports.pdf_generator import generate_pdf
+
+def fetch_as_dicts(result):
+    """ Преобразование результата запроса в список словарей """
+    keys = result.keys()
+    return [dict(zip(keys, row)) for row in result.fetchall()]
 
 @require_auth
 async def start(update: Update, context: CallbackContext):
@@ -40,7 +51,7 @@ async def start(update: Update, context: CallbackContext):
 - /add_item <Артикул>; <Название>; <Стоимость>; <Ответственный> - Добавить полуфабрикат.
 - /movement <Артикул>; <Поступление>; <Отгрузка>[; Комментарий] - Добавить движение товаров.
 - /add_product <Название>; <Артикул>; <Состав> - Добавить товар и его состав.
-- /delete <Артикул> - Удалить полуфабрикат или товар.
+- /del_article <Артикул> - Удалить полуфабрикат или товар.
         """
 
         # Команды для администратора
@@ -48,7 +59,9 @@ async def start(update: Update, context: CallbackContext):
 🔧 Дополнительные команды для администратора:
 - /add_user <username>; <Имя>; <Фамилия> - Добавить нового пользователя.
 - /pay_user <username> <сумма> - Выплатить пользователю.
-- /reset_db - Сбросить базу данных (пересоздать таблицы).
+- /reset_db - Сбросить определенную таблицу или сбросить всё.
+- /load_semifinished - Загрузить полуфабрикаты из файла.
+- /load_products - Загрузить товары и их состав из файла.
         """
 
         # Формирование сообщения для администратора и пользователя
@@ -64,7 +77,7 @@ async def start(update: Update, context: CallbackContext):
 @require_auth
 async def export_reports(update: Update, context: CallbackContext):
     """
-    Экспорт всех отчетов (остатки и движение товаров) в Excel и PDF.
+    Экспорт всех отчетов (остатки, движение товаров, полуфабрикаты и товары) в Excel.
     """
     try:
         # Подключение к базе данных
@@ -79,7 +92,7 @@ async def export_reports(update: Update, context: CallbackContext):
                 cost AS Стоимость
             FROM stock
         """)
-        stock_data = db.execute(stock_query).fetchall()
+        stock_data = fetch_as_dicts(db.execute(stock_query))
 
         movement_query = text("""
             SELECT 
@@ -90,78 +103,92 @@ async def export_reports(update: Update, context: CallbackContext):
                 comment AS Комментарий
             FROM movements
         """)
-        movement_data = db.execute(movement_query).fetchall()
+        movement_data = fetch_as_dicts(db.execute(movement_query))
 
         stock_pay_user_query = text("""
             SELECT
-                first_name AS Имя,
-                second_name AS Фамилия,
+                username AS Пользователь,
+                role AS Роль,
                 expenses AS "Остаток средств"
             FROM users
         """)
-        stock_pay_user_data = db.execute(stock_pay_user_query).fetchall()
+        stock_pay_user_data = fetch_as_dicts(db.execute(stock_pay_user_query))
 
-        # Генерация отчетов
-        generate_excel(stock_data, movement_data, stock_pay_user_data)
-        report_file = os.path.join(REPORT_FOLDER, "warehouse_report.xlsx")
+        semi_finished_products_query = text("""
+            SELECT
+                article AS Артикул,
+                name AS Наименование,
+                cost AS Стоимость,
+                responsible AS Ответственный,
+                comment AS Комментарий
+            FROM semi_finished_products
+        """)
+        semi_finished_products = fetch_as_dicts(db.execute(semi_finished_products_query))
 
-        # Отправка отчетов пользователю
+        products_query = text("""
+            SELECT 
+                pc.product_article AS Артикул,
+                pc.product_name AS Наименование,
+                STRING_AGG(pcomp.semi_product_article || ' (' || pcomp.quantity || ')', ', ') AS Состав
+            FROM product_composition pc
+            LEFT JOIN product_component pcomp ON pc.product_article = pcomp.product_article
+            GROUP BY pc.product_article, pc.product_name
+        """)
+        products = fetch_as_dicts(db.execute(products_query))
+
+        # Генерация Excel-отчета
+        report_file = generate_excel(stock_data, movement_data, stock_pay_user_data, semi_finished_products, products)
+
+        # Отправка отчета пользователю
         with open(report_file, "rb") as f:
             await update.message.reply_document(f)
+
         db.close()
         await update.message.reply_text("Отчеты успешно сгенерированы и отправлены!")
     except Exception as e:
         await update.message.reply_text(f"Ошибка при экспорте отчетов: {str(e)}")
 
+
 @require_auth
 async def filter_data(update: Update, context: CallbackContext):
     """
-    Фильтрация данных по периоду и генерация отчетов.
+    Фильтрация данных по периоду и генерация отчета в формате Excel.
     Пример команды: /filter 2023-01-01 2023-12-31
     """
     try:
         args = context.args
-        if len(args) < 2:
-            await update.message.reply_text("Пример: /filter 2023-01-01 2023-12-31")
+        if len(args) != 2:
+            await update.message.reply_text("Неверное количество аргументов. Пример: /filter 2023-01-01 2023-12-31")
             return
 
-        start_date, end_date = args[0], args[1]
+        start_date = datetime.strptime(args[0], "%Y-%m-%d")
+        end_date = datetime.strptime(args[1], "%Y-%m-%d")
 
-        # Подключение к базе данных
         db = SessionLocal()
 
-        # Применение фильтров
-        movement_query = text("""
-            SELECT date AS Дата, name AS Наименование, incoming AS Поступление, 
-                   outgoing AS Отгрузка, comment AS Комментарий
-            FROM movements
-            WHERE date BETWEEN :start_date AND :end_date
-        """)
-        filtered_movements = db.execute(movement_query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        # Получаем данные из таблицы movements за указанный период
+        query = db.query(Movement).filter(Movement.date.between(start_date, end_date))
+        movements = query.all()
 
-        # Преобразуем отфильтрованные данные для отчетов
-        stock_data = []  # Здесь можно настроить остатки по полуфабрикатам
-        movement_data = [
-            {
-                "Дата": m.date,
-                "Наименование": m.name,
-                "Поступление": m.incoming,
-                "Отгрузка": m.outgoing,
-                "Комментарий": m.comment,
-            }
-            for m in filtered_movements
-        ]
+        if not movements:
+            await update.message.reply_text("Данных за указанный период не найдено.")
+            return
 
-        # Генерация отчетов
-        excel_files = generate_excel(stock_data, movement_data)
-        pdf_files = generate_pdf(stock_data, movement_data)
+        # Создаем DataFrame для экспорта в Excel
+        data = [{
+            "Дата": movement.date.strftime("%Y-%m-%d %H:%M:%S"),
+            "Артикул": movement.article,
+            "Название": movement.name,
+            "Поступление": movement.incoming,
+            "Отгрузка": movement.outgoing,
+            "Комментарий": movement.comment
+        } for movement in movements]
 
-        # Отправка отчетов пользователю
-        for file in excel_files + pdf_files:
-            with open(file, "rb") as f:
-                await update.message.reply_document(f)
-        db.close()
-        await update.message.reply_text(f"Данные за период {start_date} - {end_date} успешно отфильтрованы и отправлены!")
+        df = pd.DataFrame(data)
+        file = generate_excel_for_movement(df)
+        # Отправляем файл пользователю
+        with open(file, "rb") as f:
+            await update.message.reply_document(f)
+
     except Exception as e:
-        await update.message.reply_text(f"Ошибка при фильтрации данных: {str(e)}")
-
+        await update.message.reply_text(f"Ошибка: {str(e)}")

@@ -253,12 +253,12 @@ async def add_product(update: Update, context: CallbackContext):
 async def del_article(update: Update, context: CallbackContext):
     """
     Команда для удаления артикула (товара или полуфабриката).
-    Пример: /delete <артикул>
+    Пример: /del_article <артикул>
     """
     try:
         args = context.args
         if len(args) != 1:
-            await update.message.reply_text("Неверное количество аргументов. Пример: /delete 12345")
+            await update.message.reply_text("Неверное количество аргументов. Пример: /del_article 12345")
             return
 
         article = args[0].strip()

@@ -1,5 +1,7 @@
 # Default ignored files
 /shelf/
 /workspace.xml
-/bot/config.py
+bot/config.py
 /.env
+docker-compose.yml
+Dockerfile
