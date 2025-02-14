@@ -3,5 +3,8 @@
 /workspace.xml
 bot/config.py
 /.env
-docker-compose.yml
 Dockerfile
+bot/config.py
+docker-compose.yml
+
+>>>>>>> 087190f (Добавлен .gitignore для приватных файлов)
