@@ -1,21 +1,22 @@
 from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, DateTime
 from sqlalchemy.orm import declarative_base, relationship
 
+from sqlalchemy.orm import declarative_base, relationship
+
+
 Base = declarative_base()
 
-# Таблица пользователей
 class User(Base):
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, nullable=False, unique=True)
-    role = Column(String, default="user")  # Роль: администратор или пользователь
+    role = Column(String, default="user")
     expenses = Column(Float, default=0.0)
     created_at = Column(Date)
     first_name = Column(String, default="admin")
     second_name = Column(String, default="admin")
 
-# Таблица полуфабрикатов
 class SemiFinishedProduct(Base):
     __tablename__ = 'semi_finished_products'
 
@@ -26,7 +27,6 @@ class SemiFinishedProduct(Base):
     responsible = Column(String, nullable=False)
     comment = Column(String, nullable=True)
 
-# Таблица остатков
 class Stock(Base):
     __tablename__ = 'stock'
 
@@ -36,19 +36,17 @@ class Stock(Base):
     in_stock = Column(Integer, default=0)
     cost = Column(Float, nullable=False)
 
-# Таблица движения товаров
 class Movement(Base):
     __tablename__ = "movements"
 
     id = Column(Integer, primary_key=True)
-    date = Column(DateTime, nullable=False)  # Дата движения
-    article = Column(String, nullable=False)  # Артикул товара или полуфабриката
-    name = Column(String, nullable=False)  # Название товара или полуфабриката
-    incoming = Column(Integer, default=0)  # Поступление
-    outgoing = Column(Integer, default=0)  # Отгрузка
-    comment = Column(String)  # Комментарий
+    date = Column(DateTime, nullable=False)
+    article = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    incoming = Column(Integer, default=0)
+    outgoing = Column(Integer, default=0)
+    comment = Column(String)
 
-#Таблица товаров
 class ProductComposition(Base):
     __tablename__ = "product_composition"
 
@@ -58,7 +56,6 @@ class ProductComposition(Base):
 
     components = relationship("ProductComponent", back_populates="product")
 
-#Таблица компонентов товара
 class ProductComponent(Base):
     __tablename__ = "product_component"
 

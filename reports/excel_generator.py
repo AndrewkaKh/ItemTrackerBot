@@ -1,6 +1,7 @@
-import pandas as pd
-from config import REPORT_FOLDER
 import os
+import pandas as pd
+
+from config import REPORT_FOLDER
 
 
 def generate_excel(stock_data, movement_data, stock_pay_user_data, semi_finished_products, products):
@@ -13,16 +14,14 @@ def generate_excel(stock_data, movement_data, stock_pay_user_data, semi_finished
     :param products: Список товаров (формат: [{'field': value}, ...])
     """
     try:
-        os.makedirs(REPORT_FOLDER, exist_ok=True)  # Создаем папку, если ее нет
+        os.makedirs(REPORT_FOLDER, exist_ok=True)
 
-        # Создаем DataFrame для каждого набора данных
         stock_df = pd.DataFrame(stock_data)
         movement_df = pd.DataFrame(movement_data)
         stock_pay_user_df = pd.DataFrame(stock_pay_user_data)
         semi_finished_products_df = pd.DataFrame(semi_finished_products)
         products_df = pd.DataFrame(products)
 
-        # Создаем общий файл Excel с несколькими листами
         report_file = os.path.join(REPORT_FOLDER, "warehouse_report.xlsx")
         with pd.ExcelWriter(report_file, engine="openpyxl") as writer:
             stock_df.to_excel(writer, sheet_name="Stock", index=False)
@@ -42,7 +41,7 @@ def generate_excel_for_movement(movement_data):
     :param movement_data: Список движения товаров за какой-то отрезок времени(формат: [{'field': value}, ...])
     """
     try:
-        os.makedirs(REPORT_FOLDER, exist_ok=True)  # Создаем папку, если ее нет
+        os.makedirs(REPORT_FOLDER, exist_ok=True)
 
         report_file = os.path.join(REPORT_FOLDER, "warehouse_report.xlsx")
         with pd.ExcelWriter(report_file, engine="openpyxl") as writer:

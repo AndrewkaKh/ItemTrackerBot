@@ -1,20 +1,21 @@
-import sys
 import os
+import sys
 import tempfile
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from telegram.ext import CommandHandler, CallbackContext
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-
-from database.db import reset_database, SessionLocal
 from sqlalchemy import text
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CommandHandler, CallbackContext
 import pandas as pd
-from sqlalchemy.exc import IntegrityError
 
 from bot.config import ADMIN_ID
-from database.models import User, SemiFinishedProduct, ProductComposition, ProductComponent
+from database.db import reset_database, SessionLocal
+from database.models import User, SemiFinishedProduct, ProductComposition, ProductComponent, Movement
 
-# Список таблиц в базе данных
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+
+
 TABLES = {
     "users": "Пользователи",
     "movements": "Движение товаров",
@@ -105,7 +106,6 @@ async def add_user(update: Update, context: CallbackContext):
 
         username, first_name, second_name = parts[0].strip(), parts[1].strip(), parts[2].strip()
 
-        # Проверяем существование пользователя в базе
         db = SessionLocal()
         existing_user = db.query(User).filter_by(username=username).first()
         if existing_user:
@@ -113,7 +113,6 @@ async def add_user(update: Update, context: CallbackContext):
             db.close()
             return
 
-        # Добавляем нового пользователя
         new_user = User(username=username, first_name=first_name, second_name=second_name)
         db.add(new_user)
         db.commit()
@@ -141,17 +140,14 @@ async def pay_user(update: Update, context: CallbackContext):
         username = args[0].strip()
         amount = float(args[1])
 
-        # Создаем сессию
         db = SessionLocal()
 
-        # Проверяем существование пользователя
         user = db.query(User).filter_by(username=username).first()
         if not user:
             await update.message.reply_text(f"Пользователь {username} не найден.")
             db.close()
             return
 
-        # Зачисляем деньги на счет пользователя
         user.expenses += amount
         db.commit()
         db.close()
@@ -181,6 +177,16 @@ async def load_products(update: Update, context: CallbackContext):
     await update.message.reply_text("Пожалуйста, отправьте Excel-файл с данными о товарах в формате:\n"
                                     "Название товара | Артикул товара | Состав | Ответственный | Комментарий")
 
+async def load_history(update: Update, context: CallbackContext):
+    """Команда для загрузки данных о полуфабрикатах из Excel-файла."""
+    if update.effective_user.id != int(ADMIN_ID):
+        await update.message.reply_text("У вас нет прав для этой команды.")
+        return
+
+    await update.message.reply_text("При загрузке файла, текущая хронология очищается и загружается новая.\n"
+                                    "Пожалуйста, отправьте Excel-файл с данными об истории движений товаров в формате:\n"
+                                    "Дата | Наименование товара | Поступление | Отгрузка | Комментарий | Ответственный")
+
 async def handle_excel_file(update: Update, context: CallbackContext):
     """Обработчик загруженного файла Excel."""
     if update.effective_user.id != int(ADMIN_ID):
@@ -189,30 +195,28 @@ async def handle_excel_file(update: Update, context: CallbackContext):
 
     document = update.message.document
 
-    # Проверяем расширение файла
     if not document.file_name.endswith(".xlsx"):
         await update.message.reply_text("Ошибка: неверный тип файла. Пожалуйста, отправьте Excel-файл формата .xlsx.")
         return
 
     file = await document.get_file()
 
-    # Создаем временный файл
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_file:
         file_path = tmp_file.name
         await file.download_to_drive(file_path)
 
     try:
-        # Читаем Excel-файл
         df = pd.read_excel(file_path)
 
         if {"Артикул", "Наименование", "Стоимость", "Ответственный"}.issubset(df.columns):
-            # Обрабатываем полуфабрикаты
             await update.message.reply_text("Обнаружены данные о полуфабрикатах. Начинается загрузка...")
             await load_semi_finished_products(df, update)
         elif {"Название товара", "Артикул товара", "Состав", "Ответственный"}.issubset(df.columns):
-            # Обрабатываем товары
             await update.message.reply_text("Обнаружены данные о товарах. Начинается загрузка...")
             await load_info_products(df, update)
+        elif {"Дата", "Наименование товара", "Поступление", "Отгрузка",	"Комментарий", "Ответственный"}.issubset(df.columns):
+            await update.message.reply_text("Обнаружены данные об истории склада. Начинается загрузка...")
+            await load_info_history(df, update)
         else:
             await update.message.reply_text("Ошибка: не удалось определить тип данных. Проверьте формат файла.")
     except Exception as e:
@@ -228,17 +232,14 @@ async def load_semi_finished_products(df, update):
         responsible = str(row['Ответственный'])
         comment = str(row['Комментарий']) if 'Комментарий' in row else None
 
-        # Проверяем, существует ли полуфабрикат
         existing_product = session.query(SemiFinishedProduct).filter_by(article=article).first()
 
         if existing_product:
-            # Обновляем данные полуфабриката
             existing_product.name = name
             existing_product.cost = cost
             existing_product.responsible = responsible
             existing_product.comment = comment
         else:
-            # Создаем новый полуфабрикат
             new_product = SemiFinishedProduct(
                 article=article, name=name, cost=cost, responsible=responsible, comment=comment
             )
@@ -259,22 +260,17 @@ async def load_info_products(df, update):
         responsible = str(row['Ответственный'])
         comment = str(row['Комментарий']) if 'Комментарий' in row else None
 
-        # Проверяем, существует ли товар
         existing_product = session.query(ProductComposition).filter_by(product_article=product_article).first()
 
         if existing_product:
-            # Удаляем старый состав
             session.query(ProductComponent).filter_by(product_article=product_article).delete()
-            # Обновляем данные товара
             existing_product.product_name = product_name
         else:
-            # Создаем новый товар
             existing_product = ProductComposition(product_article=product_article, product_name=product_name)
             session.add(existing_product)
 
         session.commit()
 
-        # Добавляем новый состав
         for item in composition_raw.split(";"):
             article, quantity = item.split(":")
             component = ProductComponent(
@@ -283,6 +279,43 @@ async def load_info_products(df, update):
                 quantity=int(quantity.strip())
             )
             session.add(component)
+
+        session.commit()
+
+    session.close()
+    await update.message.reply_text("Данные о товарах успешно загружены!")
+
+async def load_info_history(df, update):
+    """Загрузка истории из DataFrame."""
+    session = SessionLocal()
+    skip_not_exist_products = set()
+    for _, row in df.iterrows():
+        date = str(row['Дата'])
+        name = str(row['Наименование товара'])
+        incoming = str(row['Поступление'])
+        outgoing = str(row['Отгрузка'])
+        comment = str(row['Комментарий']) if 'Комментарий' in row else None
+        if name in skip_not_exist_products:
+            continue
+        result1 = session.query(SemiFinishedProduct).filter(
+            SemiFinishedProduct.name.ilike(f"%{name}%")
+        ).first()
+        result2 = session.query(ProductComposition).filter(
+            ProductComposition.product_name.ilike(f"%{name}%")
+        ).first()
+        article = -1
+        if result1:
+            article = result1.article
+        elif result2:
+            article = result2.product_article
+        else:
+            skip_not_exist_products.add(name)
+            await update.message.reply_text(f"Информация о товаре/полуфабрикате: {name} не найдена.\n"
+                                            "Информация о движении этого товара пропущена.")
+            continue
+
+        history_point = Movement(date=date, article=article, name=name, incoming=incoming, outgoing=outgoing, comment=comment)
+        session.add(history_point)
 
         session.commit()
 

@@ -1,22 +1,23 @@
-import sys
-import os
 from datetime import datetime
-
-from database.models import Movement
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-from telegram.ext import CommandHandler, CallbackContext
-from telegram import Update
 import os
+import sys
+
 from sqlalchemy.sql import text
+from telegram import Update
+from telegram.ext import CommandHandler, CallbackContext
 import pandas as pd
+
 from bot.access_control.auth_decorator import require_auth
 from bot.config import ADMIN_ID, REPORT_FOLDER
 from database.db import SessionLocal
+from database.models import Movement
 from reports.excel_generator import generate_excel, generate_excel_for_movement
 
 
-#from reports.pdf_generator import generate_pdf
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+
 
 def fetch_as_dicts(result):
     """ Преобразование результата запроса в список словарей """
@@ -34,18 +35,15 @@ async def start(update: Update, context: CallbackContext):
         user_id = update.effective_user.id  # ID текущего пользователя
         is_admin = str(user_id) == ADMIN_ID  # Сравниваем с ID администратора из конфигурации
 
-        # Приветственное сообщение
         greeting = f"Привет, {update.effective_user.first_name}! 👋\n"
         greeting += "Добро пожаловать в систему управления складом.\n"
 
-        # Команды, доступные всем пользователям
         common_commands = """
 📊 Команды отчетов (доступны всем пользователям):
-- /export_reports - Сгенерировать отчет об остатках и движении товаров (Excel и PDF).
+- /export_reports - Сгенерировать отчет об остатках и движении товаров (Excel).
 - /filter <Дата начала> <Дата конца> - Отфильтровать данные за указанный период.
         """
 
-        # Команды для пользователей
         user_commands = """
 💼 Команды для пользователей:
 - /add_item <Артикул>; <Название>; <Стоимость>; <Ответственный> - Добавить полуфабрикат.
@@ -54,7 +52,6 @@ async def start(update: Update, context: CallbackContext):
 - /del_article <Артикул> - Удалить полуфабрикат или товар.
         """
 
-        # Команды для администратора
         admin_commands = """
 🔧 Дополнительные команды для администратора:
 - /add_user <username>; <Имя>; <Фамилия> - Добавить нового пользователя.
@@ -62,9 +59,9 @@ async def start(update: Update, context: CallbackContext):
 - /reset_db - Сбросить определенную таблицу или сбросить всё.
 - /load_semifinished - Загрузить полуфабрикаты из файла.
 - /load_products - Загрузить товары и их состав из файла.
+- /load_history - Загрузить историю склада из файла.
         """
 
-        # Формирование сообщения для администратора и пользователя
         if is_admin:
             greeting += common_commands + user_commands + admin_commands
         else:
@@ -80,10 +77,8 @@ async def export_reports(update: Update, context: CallbackContext):
     Экспорт всех отчетов (остатки, движение товаров, полуфабрикаты и товары) в Excel.
     """
     try:
-        # Подключение к базе данных
         db = SessionLocal()
 
-        # Получение данных для отчетов
         stock_query = text("""
             SELECT 
                 article AS Артикул, 
@@ -136,10 +131,8 @@ async def export_reports(update: Update, context: CallbackContext):
         """)
         products = fetch_as_dicts(db.execute(products_query))
 
-        # Генерация Excel-отчета
         report_file = generate_excel(stock_data, movement_data, stock_pay_user_data, semi_finished_products, products)
 
-        # Отправка отчета пользователю
         with open(report_file, "rb") as f:
             await update.message.reply_document(f)
 
@@ -166,7 +159,6 @@ async def filter_data(update: Update, context: CallbackContext):
 
         db = SessionLocal()
 
-        # Получаем данные из таблицы movements за указанный период
         query = db.query(Movement).filter(Movement.date.between(start_date, end_date))
         movements = query.all()
 
@@ -174,7 +166,6 @@ async def filter_data(update: Update, context: CallbackContext):
             await update.message.reply_text("Данных за указанный период не найдено.")
             return
 
-        # Создаем DataFrame для экспорта в Excel
         data = [{
             "Дата": movement.date.strftime("%Y-%m-%d %H:%M:%S"),
             "Артикул": movement.article,
@@ -186,7 +177,6 @@ async def filter_data(update: Update, context: CallbackContext):
 
         df = pd.DataFrame(data)
         file = generate_excel_for_movement(df)
-        # Отправляем файл пользователю
         with open(file, "rb") as f:
             await update.message.reply_document(f)
 

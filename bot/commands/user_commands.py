@@ -1,11 +1,14 @@
 from datetime import datetime
 
-from telegram.ext import CommandHandler, CallbackContext
 from telegram import Update
+from telegram.ext import CommandHandler, CallbackContext
 
 from bot.access_control.auth_decorator import require_auth
 from database.db import SessionLocal
 from database.models import SemiFinishedProduct, Movement, Stock, ProductComposition, ProductComponent, User
+
+
+
 
 @require_auth
 async def add_item(update: Update, context: CallbackContext):
@@ -31,7 +34,6 @@ async def add_item(update: Update, context: CallbackContext):
 
         article, name, cost, responsible = parts[0].strip(), parts[1].strip(), float(parts[2].strip()), parts[3].strip()
 
-        # Сохраняем полуфабрикат в базу данных
         db = SessionLocal()
         new_item = SemiFinishedProduct(article=article, name=name, cost=cost, responsible=responsible)
         db.add(new_item)
@@ -69,16 +71,13 @@ async def movement(update: Update, context: CallbackContext):
 
         db = SessionLocal()
 
-        # Проверяем, является ли артикул полуфабрикатом
         semi_product = db.query(SemiFinishedProduct).filter_by(article=article).first()
 
-        # Проверяем, является ли артикул товаром
         product = db.query(ProductComposition).filter_by(product_article=article).first()
 
         current_date = datetime.now()  # Получаем текущую дату и время
 
         if semi_product:
-            # Добавляем запись о движении полуфабриката
             movement_entry = Movement(
                 date=current_date,
                 article=article,
@@ -89,7 +88,6 @@ async def movement(update: Update, context: CallbackContext):
             )
             db.add(movement_entry)
 
-            # Обновляем остаток полуфабриката
             stock_entry = db.query(Stock).filter_by(article=article).first()
             if not stock_entry:
                 stock_entry = Stock(
@@ -119,14 +117,12 @@ async def movement(update: Update, context: CallbackContext):
             return
 
         elif product:
-            # Если это товар, обновляем остатки для всех полуфабрикатов
             components = db.query(ProductComponent).filter_by(product_article=article).all()
             if not components:
                 await update.message.reply_text(f"Ошибка: для товара '{product.product_name}' не задан состав.")
                 db.close()
                 return
 
-            # Проверяем, достаточно ли полуфабрикатов для отгрузки
             insufficient_components = []
             for component in components:
                 stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
@@ -147,12 +143,10 @@ async def movement(update: Update, context: CallbackContext):
                 db.close()
                 return
 
-            # Обновляем остатки для всех полуфабрикатов
             for component in components:
                 stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
                 stock_entry.in_stock -= component.quantity * outgoing
 
-            # Логируем движение товара
             movement_entry = Movement(
                 date=current_date,
                 article=article,
@@ -166,7 +160,6 @@ async def movement(update: Update, context: CallbackContext):
             await update.message.reply_text(f"Движение товара '{product.product_name}' успешно добавлено.")
 
         else:
-            # Если артикул не найден
             await update.message.reply_text(f"Ошибка: артикул '{article}' не найден.")
             db.close()
             return
@@ -189,7 +182,6 @@ async def add_product(update: Update, context: CallbackContext):
             )
             return
 
-        # Разбираем данные
         parts = args.split(";")
         if len(parts) != 3:
             await update.message.reply_text(
@@ -203,7 +195,6 @@ async def add_product(update: Update, context: CallbackContext):
 
         db = SessionLocal()
 
-        # Проверяем, существует ли товар с данным артикулом
         existing_product = db.query(ProductComposition).filter_by(product_article=product_article).first()
         if existing_product:
             await update.message.reply_text(
@@ -212,13 +203,11 @@ async def add_product(update: Update, context: CallbackContext):
             db.close()
             return
 
-        # Парсим состав
         composition = []
         for item in composition_raw.split(","):
             article, qty = item.split(":")
             composition.append({"article": article.strip(), "quantity": int(qty)})
 
-        # Проверяем наличие полуфабрикатов
         for component in composition:
             semi_product = db.query(SemiFinishedProduct).filter_by(article=component["article"]).first()
             if not semi_product:
@@ -228,12 +217,10 @@ async def add_product(update: Update, context: CallbackContext):
                 db.close()
                 return
 
-        # Сохраняем товар
         new_product = ProductComposition(product_article=product_article, product_name=product_name)
         db.add(new_product)
         db.commit()
 
-        # Добавляем состав
         for component in composition:
             product_component = ProductComponent(
                 product_article=product_article,
@@ -264,33 +251,25 @@ async def del_article(update: Update, context: CallbackContext):
         article = args[0].strip()
         db = SessionLocal()
 
-        # Проверяем, является ли артикул товаром
         product = db.query(ProductComposition).filter_by(product_article=article).first()
         if product:
-            # Удаляем состав товара
             db.query(ProductComponent).filter_by(product_article=article).delete()
-            # Удаляем сам товар
             db.delete(product)
             db.commit()
             await update.message.reply_text(f"Товар с артикулом '{article}' успешно удален.")
             db.close()
             return
 
-        # Проверяем, является ли артикул полуфабрикатом
         semi_product = db.query(SemiFinishedProduct).filter_by(article=article).first()
         if semi_product:
-            # Удаляем остатки полуфабриката
             db.query(Stock).filter_by(article=article).delete()
-            # Удаляем записи о движении полуфабриката
             db.query(Movement).filter_by(article=article).delete()
-            # Удаляем сам полуфабрикат
             db.delete(semi_product)
             db.commit()
             await update.message.reply_text(f"Полуфабрикат с артикулом '{article}' успешно удален.")
             db.close()
             return
 
-        # Если артикул не найден
         await update.message.reply_text(f"Ошибка: артикул '{article}' не найден.")
         db.close()
     except Exception as e:
