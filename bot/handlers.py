@@ -2,7 +2,7 @@ from cgitb import reset
 
 from telegram.ext import CommandHandler, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
-from bot.commands.admin_commands import load_products, reset_table_confirm, reset_table, cancel_reset, load_history
+from commands.admin_commands import load_products, reset_table_confirm, reset_table, cancel_reset, load_history
 from commands.admin_commands import add_user, pay_user, reset_db, load_semifinished, handle_excel_file
 from commands.report_commands import export_reports, filter_data
 from commands.report_commands import start

@@ -2,16 +2,17 @@ import os
 import sys
 import tempfile
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 from sqlalchemy import text
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackContext
 import pandas as pd
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from config import ADMIN_ID
+from db import reset_database, SessionLocal
+from models import User, SemiFinishedProduct, ProductComposition, ProductComponent, Movement
 
-from bot.config import ADMIN_ID
-from database.db import reset_database, SessionLocal
-from database.models import User, SemiFinishedProduct, ProductComposition, ProductComponent, Movement
 
 
 TABLES = {
