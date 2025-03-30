@@ -21,14 +21,14 @@ async def add_item(update: Update, context: CallbackContext):
         args = " ".join(context.args)
         if ";" not in args:
             await update.message.reply_text(
-                "Неверный формат аргументов.\nПример: /add_item 123;Название;100;Ответственный"
+                "Неверный формат аргументов.\nФормат: /add_item <Артикул>;<Название>;<Стоимость>;<Ответственный>\nПример: /add_item 123;Название;100;Ответственный"
             )
             return
 
         parts = args.split(";")
         if len(parts) < 4:
             await update.message.reply_text(
-                "Неверное количество аргументов.\nПример: /add_item 123;Название;100;Ответственный"
+                "Неверное количество аргументов.\nФормат: /add_item <Артикул>;<Название>;<Стоимость>;<Ответственный>\nПример: /add_item 123;Название;100;Ответственный"
             )
             return
 
@@ -45,29 +45,29 @@ async def add_item(update: Update, context: CallbackContext):
         await update.message.reply_text(f"Ошибка: {str(e)}")
 
 @require_auth
-async def movement(update: Update, context: CallbackContext):
+async def movement_from(update: Update, context: CallbackContext):
     """
-    Команда для добавления движения товаров.
-    Пример: /movement <артикул>;<поступление>;<отгрузка>[;комментарий]
+    Команда для отслеживания отправки товаров со склада.
+    Пример: /ot <артикул>;<количество>[;комментарий]
     """
     try:
         username = update.effective_user.username
         args = " ".join(context.args)
         if ";" not in args:
             await update.message.reply_text(
-                "Неверный формат аргументов.\nПример: /movement 12345;10;5;Комментарий"
+                "Неверный формат аргументов.\nФормат: /ot <артикул>; <количество>; <комментарий>\nПример: /ot 12345; 10; Комментарий"
             )
             return
 
         parts = args.split(";")
-        if len(parts) < 3:
+        if len(parts) < 2:
             await update.message.reply_text(
-                "Неверное количество аргументов.\nПример: /movement 12345;10;5;Комментарий"
+                "Неверное количество аргументов.\nФормат: /ot <артикул>; <количество>; <комментарий>\nПример: /ot 12345; 10; Комментарий"
             )
             return
 
-        article, incoming, outgoing = parts[0].strip(), int(parts[1].strip()), int(parts[2].strip())
-        comment = parts[3].strip() if len(parts) > 3 else ""
+        article, outgoing = parts[0].strip(), int(parts[1].strip())
+        comment = parts[2].strip() if len(parts) > 2 else ""
 
         db = SessionLocal()
 
@@ -75,14 +75,14 @@ async def movement(update: Update, context: CallbackContext):
 
         product = db.query(ProductComposition).filter_by(product_article=article).first()
 
-        current_date = datetime.now()  # Получаем текущую дату и время
+        current_date = datetime.now()
 
         if semi_product:
             movement_entry = Movement(
                 date=current_date,
                 article=article,
                 name=semi_product.name,
-                incoming=incoming,
+                incoming=0,
                 outgoing=outgoing,
                 comment=comment,
             )
@@ -93,12 +93,12 @@ async def movement(update: Update, context: CallbackContext):
                 stock_entry = Stock(
                     article=article,
                     name=semi_product.name,
-                    in_stock=incoming - outgoing,
+                    in_stock=-outgoing,
                     cost=semi_product.cost,
                 )
                 db.add(stock_entry)
             else:
-                stock_entry.in_stock += incoming - outgoing
+                stock_entry.in_stock -= outgoing
 
             if stock_entry.in_stock < 0:
                 await update.message.reply_text(
@@ -107,9 +107,6 @@ async def movement(update: Update, context: CallbackContext):
                 db.rollback()
                 db.close()
                 return
-
-            stock_pay_user = db.query(User).filter_by(username=username).first()
-            stock_pay_user.expenses -= incoming * semi_product.cost
 
             db.commit()
             await update.message.reply_text(f"Движение для полуфабриката '{semi_product.name}' успешно добавлено.")
@@ -127,12 +124,12 @@ async def movement(update: Update, context: CallbackContext):
             for component in components:
                 stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
                 if not stock_entry or stock_entry.in_stock < component.quantity * outgoing:
-                    insufficient_components.append(component)
+                    insufficient_components.append((stock_entry, component))
 
             if insufficient_components:
                 missing_items = ", ".join(
                     [
-                        f"{c.semi_product_article} (нужно: {c.quantity * outgoing}, есть: {stock_entry.in_stock if stock_entry else 0})"
+                        f"{c[1].semi_product_article} (нужно: {c[1].quantity * outgoing}, есть: {c[0].in_stock if c[0] else 0})"
                         for c in insufficient_components
                     ]
                 )
@@ -151,7 +148,7 @@ async def movement(update: Update, context: CallbackContext):
                 date=current_date,
                 article=article,
                 name=product.product_name,
-                incoming=incoming,
+                incoming=0,
                 outgoing=outgoing,
                 comment=comment,
             )
@@ -167,6 +164,83 @@ async def movement(update: Update, context: CallbackContext):
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {str(e)}")
 
+
+@require_auth
+async def movement_to(update: Update, context: CallbackContext):
+    """
+    Команда для отслеживания поступления товара на склад.
+    Пример: /po <артикул>;<количество>[;комментарий]
+    """
+    try:
+        username = update.effective_user.username
+        args = " ".join(context.args)
+        if ";" not in args:
+            await update.message.reply_text(
+                "Неверный формат аргументов.\nФормат: /po <артикул>; <количество>; <комментарий>\nПример: /po 12345; 10; Комментарий"
+            )
+            return
+
+        parts = args.split(";")
+        if len(parts) < 2:
+            await update.message.reply_text(
+                "Неверное количество аргументов.\nФормат: /po <артикул>; <количество>; <комментарий>\nПример: /po 12345; 10; Комментарий"
+            )
+            return
+
+        article, incoming = parts[0].strip(), int(parts[1].strip())
+        comment = parts[2].strip() if len(parts) > 2 else ""
+
+        db = SessionLocal()
+
+        semi_product = db.query(SemiFinishedProduct).filter_by(article=article).first()
+
+        product = db.query(ProductComposition).filter_by(product_article=article).first()
+
+        current_date = datetime.now()
+
+        if semi_product:
+            movement_entry = Movement(
+                date=current_date,
+                article=article,
+                name=semi_product.name,
+                incoming=incoming,
+                outgoing=0,
+                comment=comment,
+            )
+            db.add(movement_entry)
+
+            stock_entry = db.query(Stock).filter_by(article=article).first()
+            if not stock_entry:
+                stock_entry = Stock(
+                    article=article,
+                    name=semi_product.name,
+                    in_stock=incoming,
+                    cost=semi_product.cost,
+                )
+                db.add(stock_entry)
+            else:
+                stock_entry.in_stock += incoming
+
+            stock_pay_user = db.query(User).filter_by(username=username).first()
+            stock_pay_user.expenses -= incoming * semi_product.cost
+
+            db.commit()
+            await update.message.reply_text(f"Движение для полуфабриката '{semi_product.name}' успешно добавлено.")
+            db.close()
+            return
+
+        elif product:
+            await update.message.reply_text(f"Товар '{product.product_name}' может только отгружаться со склада.")
+
+        else:
+            await update.message.reply_text(f"Ошибка: артикул '{article}' не найден.")
+            db.close()
+            return
+
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {str(e)}")
+
+
 @require_auth
 async def add_product(update: Update, context: CallbackContext):
     """
@@ -178,14 +252,14 @@ async def add_product(update: Update, context: CallbackContext):
         args = " ".join(context.args)
         if ";" not in args:
             await update.message.reply_text(
-                "Неверный формат. Пример:\n/add_product Название товара;Артикул товара;Артикул1:10,Артикул2:20"
+                "Неверный формат.\nФормат: /add_product <Название товара>;<Артикул товара>;<Состав: Артикул1:Кол-во,Артикул2:Кол-во>\nПример: /add_product Название товара;Артикул товара;Артикул1:10,Артикул2:20"
             )
             return
 
         parts = args.split(";")
         if len(parts) != 3:
             await update.message.reply_text(
-                "Неверный формат. Пример:\n/add_product Название товара;Артикул товара;Артикул1:10,Артикул2:20"
+                "Неверный формат.\nФормат: /add_product <Название товара>;<Артикул товара>;<Состав: Артикул1:Кол-во,Артикул2:Кол-во>\nПример: /add_product Название товара;Артикул товара;Артикул1:10,Артикул2:20"
             )
             return
 
@@ -245,7 +319,7 @@ async def del_article(update: Update, context: CallbackContext):
     try:
         args = context.args
         if len(args) != 1:
-            await update.message.reply_text("Неверное количество аргументов. Пример: /del_article 12345")
+            await update.message.reply_text("Неверное количество аргументов.\nФормат: /del_article <артикул>\nПример: /del_article 12345")
             return
 
         article = args[0].strip()

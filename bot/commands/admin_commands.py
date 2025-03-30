@@ -11,8 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 
 from bot.config import ADMIN_ID
 from database.db import reset_database, SessionLocal
-from database.models import User, SemiFinishedProduct, ProductComposition, ProductComponent, Movement
-
+from database.models import User, SemiFinishedProduct, ProductComposition, ProductComponent, Movement, Stock
 
 TABLES = {
     "users": "Пользователи",
@@ -287,11 +286,21 @@ async def load_info_history(df, update):
     """Загрузка истории из DataFrame."""
     session = SessionLocal()
     skip_not_exist_products = set()
+    try:
+        all_stocks = session.query(Stock).all()
+        for stock in all_stocks:
+            stock.in_stock = 0
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        await update.message.reply_text(f"Ошибка при обнулении остатков: {e}")
+    session.execute(text(f"DELETE FROM movements"))
+    session.commit()
     for _, row in df.iterrows():
         date = str(row['Дата'])
         name = str(row['Наименование товара'])
-        incoming = str(row['Поступление'])
-        outgoing = str(row['Отгрузка'])
+        incoming = int(row['Поступление'])
+        outgoing = int(row['Отгрузка'])
         comment = str(row['Комментарий']) if 'Комментарий' in row else None
         if name in skip_not_exist_products:
             continue
@@ -303,8 +312,22 @@ async def load_info_history(df, update):
         ).first()
         article = -1
         if result1:
+            #полуфабрикат
             article = result1.article
+            stock_entry = session.query(Stock).filter_by(article=article).first()
+            semi_product = session.query(SemiFinishedProduct).filter_by(article=article).first()
+            if not stock_entry:
+                stock_entry = Stock(
+                    article=article,
+                    name=semi_product.name,
+                    in_stock=incoming-outgoing,
+                    cost=semi_product.cost,
+                )
+                session.add(stock_entry)
+            else:
+                stock_entry.in_stock += incoming - outgoing
         elif result2:
+            #товар
             article = result2.product_article
         else:
             skip_not_exist_products.add(name)
