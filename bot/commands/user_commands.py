@@ -1,4 +1,5 @@
 from datetime import datetime
+from itertools import product
 
 from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext
@@ -110,57 +111,40 @@ async def movement_from(update: Update, context: CallbackContext):
 
             db.commit()
             await update.message.reply_text(f"Движение для полуфабриката '{semi_product.name}' успешно добавлено.")
-            db.close()
-            return
 
         elif product:
-            components = db.query(ProductComponent).filter_by(product_article=article).all()
-            if not components:
-                await update.message.reply_text(f"Ошибка: для товара '{product.product_name}' не задан состав.")
-                db.close()
-                return
-
-            insufficient_components = []
-            for component in components:
-                stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
-                if not stock_entry or stock_entry.in_stock < component.quantity * outgoing:
-                    insufficient_components.append((stock_entry, component))
-
-            if insufficient_components:
-                missing_items = ", ".join(
-                    [
-                        f"{c[1].semi_product_article} (нужно: {c[1].quantity * outgoing}, есть: {c[0].in_stock if c[0] else 0})"
-                        for c in insufficient_components
-                    ]
-                )
+            stock_entry = db.query(Stock).filter_by(article=article).first()
+            if stock_entry:
+                if stock_entry.in_stock >= outgoing:
+                    stock_entry.in_stock -= outgoing
+                    movement_entry = Movement(
+                        date=current_date,
+                        article=article,
+                        name=product.product_name,
+                        incoming=0,
+                        outgoing=outgoing,
+                        comment=comment,
+                    )
+                    db.add(stock_entry)
+                    db.add(movement_entry)
+                else:
+                    await update.message.reply_text(
+                        f"Товар '{product.product_name}' доступен в количестве: {stock_entry.in_stock}, не хватает {outgoing - stock_entry.in_stock}."
+                    )
+                    db.close()
+                    return
+            else:
                 await update.message.reply_text(
-                    f"Нельзя отгрузить товар '{product.product_name}' в количестве {outgoing}.\n"
-                    f"Не хватает полуфабрикатов: {missing_items}"
+                    f"Товара '{product.product_name}' нет на складе."
                 )
                 db.close()
                 return
-
-            for component in components:
-                stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
-                stock_entry.in_stock -= component.quantity * outgoing
-
-            movement_entry = Movement(
-                date=current_date,
-                article=article,
-                name=product.product_name,
-                incoming=0,
-                outgoing=outgoing,
-                comment=comment,
-            )
-            db.add(movement_entry)
             db.commit()
             await update.message.reply_text(f"Движение товара '{product.product_name}' успешно добавлено.")
-
         else:
             await update.message.reply_text(f"Ошибка: артикул '{article}' не найден.")
-            db.close()
-            return
 
+        db.close()
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {str(e)}")
 
@@ -348,3 +332,94 @@ async def del_article(update: Update, context: CallbackContext):
         db.close()
     except Exception as e:
         await update.message.reply_text(f"Ошибка при удалении артикула: {str(e)}")
+
+@require_auth
+async def production(update: Update, context: CallbackContext):
+    """
+    Команда для конвертации полуфабрикатов в товары.
+    Пример: /pr <Артикул>; <Количество>
+    """
+
+    try:
+        args = " ".join(context.args)
+        if ";" not in args:
+            await update.message.reply_text(
+                "Неверный формат.\nФормат: /pr <Артикул>; <Количество>\nПример: /pr FS_ST005; 2"
+            )
+            return
+
+        parts = args.split(";")
+        if len(parts) != 2:
+            await update.message.reply_text(
+                "Неверное количество аргументов.\nФормат: /pr <Артикул>; <Количество>\nПример: /pr FS_ST005; 2"
+            )
+            return
+
+        current_date = datetime.now()
+        article = parts[0].strip()
+        quantity = int(parts[1].strip())
+
+        db = SessionLocal()
+        product_exist = db.query(ProductComposition).filter_by(product_article=article).first()
+        if product_exist:
+            components = db.query(ProductComponent).filter_by(product_article=article).all()
+            if not components:
+                await update.message.reply_text(f"Ошибка: для товара '{product_exist.product_name}' не задан состав.")
+                db.close()
+                return
+
+            insufficient_components = []
+            for component in components:
+                stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
+                if not stock_entry or stock_entry.in_stock < component.quantity * quantity:
+                    insufficient_components.append((stock_entry, component))
+
+            if insufficient_components:
+                missing_items = ", ".join(
+                    [
+                        f"{c[1].semi_product_article} (нужно: {c[1].quantity * quantity}, есть: {c[0].in_stock if c[0] else 0})"
+                        for c in insufficient_components
+                    ]
+                )
+                await update.message.reply_text(
+                    f"Нельзя произвести товар '{product_exist.product_name}' в количестве {quantity}.\n"
+                    f"Не хватает полуфабрикатов: {missing_items}"
+                )
+                db.close()
+                return
+
+            for component in components:
+                stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
+                stock_entry.in_stock -= component.quantity * quantity
+
+            movement_entry = Movement(
+                date=current_date,
+                article=article,
+                name=product_exist.product_name,
+                incoming=0,
+                outgoing=quantity,
+                comment=f"Производство товара",
+            )
+
+            stock_entry = db.query(Stock).filter_by(article=article).first()
+            if not stock_entry:
+                stock_entry = Stock(
+                    article=article,
+                    name=product_exist.product_name,
+                    in_stock=quantity,
+                    cost=0,
+                )
+                db.add(stock_entry)
+            else:
+                stock_entry.in_stock += quantity
+            db.add(movement_entry)
+            db.commit()
+            await update.message.reply_text(
+                f"Успешно произвели товар: '{product_exist.product_name}' в количестве: {quantity}"
+            )
+        else:
+            await update.message.reply_text("Производить можно только товары (возможно товар не зарегистрирован в системе).")
+
+        db.close()
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка при производстве товара: {str(e)}")

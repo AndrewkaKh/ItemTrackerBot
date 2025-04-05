@@ -31,7 +31,7 @@ class Stock(Base):
     __tablename__ = 'stock'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    article = Column(String, ForeignKey('semi_finished_products.article'), nullable=False)
+    article = Column(String, nullable=False)
     name = Column(String, nullable=False)
     in_stock = Column(Integer, default=0)
     cost = Column(Float, nullable=False)

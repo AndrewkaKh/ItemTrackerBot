@@ -10,7 +10,7 @@ import pandas as pd
 from bot.access_control.auth_decorator import require_auth
 from bot.config import ADMIN_ID, REPORT_FOLDER
 from database.db import SessionLocal
-from database.models import Movement
+from database.models import Movement, Stock
 from reports.excel_generator import generate_excel, generate_excel_for_movement
 
 
@@ -46,6 +46,7 @@ async def help_(update: Update, context: CallbackContext):
 📊 Команды отчетов (доступны всем пользователям):
 - /export_reports - Сгенерировать отчет об остатках и движении товаров (Excel).
 - /filter <Дата начала> <Дата конца> - Отфильтровать данные за указанный период.
+- /watch_stock <Артикул> - Посмотреть остаток произведенного товара.
     """
 
     user_commands = """
@@ -55,6 +56,7 @@ async def help_(update: Update, context: CallbackContext):
 - /po <Артикул>; <Количество>[; Комментарий] - Поступление товара на склад.
 - /add_product <Название>; <Артикул>; <Состав> - Добавить товар и его состав.
 - /del_article <Артикул> - Удалить полуфабрикат или товар.
+- /pr <Артикул>; <Количество> - производство товара(конвертация полуфабрикатов в товар).
     """
 
     admin_commands = """
@@ -184,4 +186,32 @@ async def filter_data(update: Update, context: CallbackContext):
             await update.message.reply_document(f)
 
     except Exception as e:
-        await update.message.reply_text(f"Ошибка: {str(e)}")
+        await update.message.reply_text(f"Ошибка в фильтрации данных: {str(e)}")
+
+@require_auth
+async def watch_stock(update: Update, context: CallbackContext):
+    """
+    Команда для отслеживания количества произведенного товара на складе.
+    Пример: /watch_stock <артикул>
+    """
+
+    try:
+        args = context.args
+        if len(args) != 1:
+            await update.message.reply_text("Неверное количество аргументов.\nФормат: /watch_stock <артикул>\nПример: /watch_stock FS_ST005")
+            return
+
+        article = args[0].strip()
+        db = SessionLocal()
+        stock_entry = db.query(Stock).filter_by(article=article).first()
+        if stock_entry:
+            await update.message.reply_text(
+                f"Артикул: '{article}' хранится на складе в количестве: {stock_entry.in_stock}"
+            )
+        else:
+            await update.message.reply_text(
+                f"Артикула: '{article}' нет на складе"
+            )
+        db.close()
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка в отчете о количестве товара: {str(e)}")
