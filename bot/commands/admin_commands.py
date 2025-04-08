@@ -321,11 +321,12 @@ async def load_info_history(df, update):
                     article=article,
                     name=semi_product.name,
                     in_stock=incoming-outgoing,
-                    cost=semi_product.cost,
+                    cost=semi_product.cost*(incoming-outgoing),
                 )
                 session.add(stock_entry)
             else:
                 stock_entry.in_stock += incoming - outgoing
+                stock_entry.cost += semi_product.cost * (incoming - outgoing)
         elif result2:
             #товар
             article = result2.product_article

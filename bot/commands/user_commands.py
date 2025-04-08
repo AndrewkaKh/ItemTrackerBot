@@ -110,7 +110,7 @@ async def movement_from(update: Update, context: CallbackContext):
                 return
 
             db.commit()
-            await update.message.reply_text(f"Движение для полуфабриката '{semi_product.name}' успешно добавлено.")
+            await update.message.reply_text(f"Отгрузка полуфабриката '{semi_product.name}' произведена.")
 
         elif product:
             stock_entry = db.query(Stock).filter_by(article=article).first()
@@ -140,7 +140,7 @@ async def movement_from(update: Update, context: CallbackContext):
                 db.close()
                 return
             db.commit()
-            await update.message.reply_text(f"Движение товара '{product.product_name}' успешно добавлено.")
+            await update.message.reply_text(f"Отгрузка товара '{product.product_name}' произведена.")
         else:
             await update.message.reply_text(f"Ошибка: артикул '{article}' не найден.")
 
@@ -199,17 +199,18 @@ async def movement_to(update: Update, context: CallbackContext):
                     article=article,
                     name=semi_product.name,
                     in_stock=incoming,
-                    cost=semi_product.cost,
+                    cost=semi_product.cost*incoming,
                 )
                 db.add(stock_entry)
             else:
                 stock_entry.in_stock += incoming
+                stock_entry.cost += incoming*semi_product.cost
 
             stock_pay_user = db.query(User).filter_by(username=username).first()
             stock_pay_user.expenses -= incoming * semi_product.cost
 
             db.commit()
-            await update.message.reply_text(f"Движение для полуфабриката '{semi_product.name}' успешно добавлено.")
+            await update.message.reply_text(f"Поступление полуфабриката '{semi_product.name}' произведено.")
             db.close()
             return
 
@@ -390,7 +391,9 @@ async def production(update: Update, context: CallbackContext):
 
             for component in components:
                 stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
+                stock_entry.cost = stock_entry.cost / stock_entry.in_stock
                 stock_entry.in_stock -= component.quantity * quantity
+                stock_entry.cost *= stock_entry.in_stock
 
             movement_entry = Movement(
                 date=current_date,

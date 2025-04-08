@@ -193,25 +193,40 @@ async def watch_stock(update: Update, context: CallbackContext):
     """
     Команда для отслеживания количества произведенного товара на складе.
     Пример: /watch_stock <артикул>
+    Если артикул не указан — выводятся все доступные записи на складе.
     """
-
     try:
         args = context.args
-        if len(args) != 1:
-            await update.message.reply_text("Неверное количество аргументов.\nФормат: /watch_stock <артикул>\nПример: /watch_stock FS_ST005")
-            return
-
-        article = args[0].strip()
         db = SessionLocal()
-        stock_entry = db.query(Stock).filter_by(article=article).first()
-        if stock_entry:
-            await update.message.reply_text(
-                f"Артикул: '{article}' хранится на складе в количестве: {stock_entry.in_stock}"
-            )
+
+        if len(args) == 0:
+            stock_entries = db.query(Stock).all()
+            if not stock_entries:
+                await update.message.reply_text("Склад пуст.")
+            else:
+                message = "📦 Остатки на складе:\n"
+                flag_print_text = False
+                for entry in stock_entries:
+                    if "ST" in entry.article:
+                        message += f"🔹 {entry.article} — {entry.name}: {entry.in_stock} шт.\n"
+                        flag_print_text = True
+                if not flag_print_text:
+                    await update.message.reply_text("Товаров с артикулом '*ST*' не найдено.")
+                else:
+                    await update.message.reply_text(message)
+        elif len(args) == 1:
+            article = args[0].strip()
+            stock_entry = db.query(Stock).filter_by(article=article).first()
+            if stock_entry:
+                await update.message.reply_text(
+                    f"Артикул: '{article}' хранится на складе в количестве: {stock_entry.in_stock}"
+                )
+            else:
+                await update.message.reply_text(
+                    f"Артикула: '{article}' нет на складе"
+                )
         else:
-            await update.message.reply_text(
-                f"Артикула: '{article}' нет на складе"
-            )
+            await update.message.reply_text("Неверное количество аргументов.\nФормат: /watch_stock <артикул>\nПример: /watch_stock FS_ST005")
         db.close()
     except Exception as e:
         await update.message.reply_text(f"Ошибка в отчете о количестве товара: {str(e)}")
