@@ -321,6 +321,13 @@ async def del_article(update: Update, context: CallbackContext):
 
         semi_product = db.query(SemiFinishedProduct).filter_by(article=article).first()
         if semi_product:
+            product_component = db.query(ProductComponent).filter_by(semi_product_article=article).first()
+            if product_component:
+                await update.message.reply_text(
+                    f"Нельзя удалить полуфабрикат с артикулом '{article}', так как он используется в составе товара.")
+                db.close()
+                return
+
             db.query(Stock).filter_by(article=article).delete()
             db.query(Movement).filter_by(article=article).delete()
             db.delete(semi_product)
