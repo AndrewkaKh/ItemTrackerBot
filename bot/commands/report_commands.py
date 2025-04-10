@@ -230,3 +230,12 @@ async def watch_stock(update: Update, context: CallbackContext):
         db.close()
     except Exception as e:
         await update.message.reply_text(f"Ошибка в отчете о количестве товара: {str(e)}")
+
+async def unknown_command(update: Update, context: CallbackContext):
+    """
+    Обработчик на неизвестную / неправильную команду.
+    """
+    await update.message.reply_text(
+        "Неизвестная команда.\n"
+        "Используйте /help, чтобы узнать список доступных команд."
+    )
