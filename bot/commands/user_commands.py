@@ -314,6 +314,7 @@ async def del_article(update: Update, context: CallbackContext):
         if product:
             db.query(ProductComponent).filter_by(product_article=article).delete()
             db.delete(product)
+            db.query(Stock).filter_by(article=article).delete()
             db.commit()
             await update.message.reply_text(f"Товар с артикулом '{article}' успешно удален.")
             db.close()
