@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import sys
 import tempfile
@@ -295,6 +296,7 @@ async def load_info_history(df, update):
         session.rollback()
         await update.message.reply_text(f"Ошибка при обнулении остатков: {e}")
     session.execute(text(f"DELETE FROM movements"))
+    session.execute(text(f"DELETE FROM stock"))
     session.commit()
     for _, row in df.iterrows():
         date = str(row['Дата'])
@@ -311,6 +313,7 @@ async def load_info_history(df, update):
             ProductComposition.product_name.ilike(f"%{name}%")
         ).first()
         article = -1
+        current_date = datetime.now()
         if result1:
             #полуфабрикат
             article = result1.article
@@ -330,6 +333,47 @@ async def load_info_history(df, update):
         elif result2:
             #товар
             article = result2.product_article
+            components = session.query(ProductComponent).filter_by(product_article=article).all()
+            for comp in components:
+                cost_semifinished = session.query(SemiFinishedProduct).filter_by(article=comp.semi_product_article).first().cost
+                stock_entry = session.query(Stock).filter_by(article=comp.semi_product_article).first()
+                if not stock_entry:
+                    await update.message.reply_text(
+                        f"Ошибка: на складе нет полуфабриката '{comp.semi_product_article}', "
+                        f"нужного для товара '{name}'. Строка пропущена."
+                        )
+                    break
+                need = comp.quantity * outgoing
+                if stock_entry.in_stock < need:
+                    await update.message.reply_text(
+                        f"Ошибка: нехватка полуфабрикатов '{comp.semi_product_article}' "
+                        f"(нужно {need}, есть {stock_entry.in_stock}). Строка пропущена."
+                        )
+                    break
+                stock_entry.in_stock -= need
+                stock_entry.cost = stock_entry.in_stock * cost_semifinished
+
+            movement_entry = Movement(
+                date=date,
+                article=article,
+                name=result2.product_name,
+                incoming=outgoing,
+                outgoing=0,
+                comment=f"Производство товара",
+            )
+            session.add(movement_entry)
+
+            stock_entry = session.query(Stock).filter_by(article=article).first()
+            if not stock_entry:
+                stock_entry = Stock(
+                    article=article,
+                    name=result2.product_name,
+                    in_stock=0,
+                    cost=0,
+                )
+                session.add(stock_entry)
+            else:
+                stock_entry.in_stock = 0
         else:
             skip_not_exist_products.add(name)
             await update.message.reply_text(f"Информация о товаре/полуфабрикате: {name} не найдена.\n"

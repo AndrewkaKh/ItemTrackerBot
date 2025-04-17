@@ -398,10 +398,11 @@ async def production(update: Update, context: CallbackContext):
                 return
 
             for component in components:
+                cost_semifinished = db.query(SemiFinishedProduct).filter_by(
+                    article=component.semi_product_article).first().cost
                 stock_entry = db.query(Stock).filter_by(article=component.semi_product_article).first()
-                stock_entry.cost = stock_entry.cost / stock_entry.in_stock
                 stock_entry.in_stock -= component.quantity * quantity
-                stock_entry.cost *= stock_entry.in_stock
+                stock_entry.cost = cost_semifinished * stock_entry.in_stock
 
             movement_entry = Movement(
                 date=current_date,
